@@ -1,0 +1,611 @@
+/* ParsePal Uploader - Theme & Base Styles */
+
+:root {
+  --bg: #0a0a0a;
+  --bg-card: #111111;
+  --bg-input: #1a1a1a;
+  --border: #222222;
+  --border-hover: #333333;
+  --red: #dc2626;
+  --red-hover: #b91c1c;
+  --text: #e5e5e5;
+  --text-dim: #737373;
+  --text-muted: #525252;
+  --green: #22c55e;
+  --yellow: #eab308;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* App layout */
+
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+
+.header {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title {
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-logo {
+  color: var(--red);
+  font-size: 20px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.header-btn:hover {
+  color: var(--text);
+  background: var(--bg-input);
+}
+
+/* Content area */
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* Buttons */
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+.btn-primary {
+  background: var(--red);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--red-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  border-color: var(--border-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: inherit;
+}
+
+.btn-primary:disabled:hover {
+  background: var(--red);
+}
+
+.btn-secondary:disabled:hover {
+  border-color: var(--border);
+}
+
+/* Inputs */
+
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: var(--red);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Cards */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+/* Status dots */
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.watching {
+  background: var(--green);
+}
+
+.status-dot.paused {
+  background: var(--yellow);
+}
+
+.status-dot.error {
+  background: var(--red);
+}
+
+.status-dot.idle {
+  background: var(--text-muted);
+}
+
+/* Fight list */
+
+.fight-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fight-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fight-item:last-child {
+  border-bottom: none;
+}
+
+.fight-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.fight-icon.success {
+  color: var(--green);
+}
+
+.fight-icon.error {
+  color: var(--red);
+}
+
+.fight-icon.uploading {
+  color: var(--text-dim);
+}
+
+.fight-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.fight-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fight-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.fight-action {
+  flex-shrink: 0;
+}
+
+/* Links */
+
+.link {
+  color: var(--red);
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* Error box */
+
+.error-box {
+  background: #dc26261a;
+  border: 1px solid #dc262640;
+  border-radius: 6px;
+  padding: 12px;
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+/* Section title */
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* Settings */
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-label {
+  font-size: 14px;
+}
+
+.settings-sublabel {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Toggle switch */
+
+.toggle {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  background: var(--bg-input);
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle:checked {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: all 0.2s;
+}
+
+.toggle:checked::after {
+  left: 20px;
+}
+
+/* Scrollbar for content area */
+
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Login screen */
+
+.login-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-brand-icon {
+  font-size: 40px;
+  color: var(--red);
+  margin-bottom: 8px;
+}
+
+.login-brand-title {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.login-brand-subtitle {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-footer {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* Setup screen */
+
+.setup-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.setup-content {
+  width: 100%;
+  max-width: 400px;
+}
+
+.setup-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.setup-subtitle {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 24px;
+}
+
+.setup-field {
+  margin-bottom: 16px;
+}
+
+.setup-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.setup-path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.setup-path-row .input {
+  flex: 1;
+}
+
+.version-options {
+  display: flex;
+  gap: 12px;
+}
+
+.version-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.version-option input[type="radio"] {
+  accent-color: var(--red);
+}
+
+.setup-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+
+.setup-status.valid {
+  color: var(--green);
+}
+
+.setup-status.invalid {
+  color: var(--text-dim);
+}
+
+/* Dashboard */
+
+.dashboard-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-status-text {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.dashboard-status-file {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dashboard-status-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.dashboard-fights-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
+.dashboard-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.dashboard-empty-icon {
+  font-size: 32px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.bottom-bar {
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.bottom-bar-stat {
+  color: var(--text-dim);
+}
+
+.bottom-bar-stat strong {
+  color: var(--text);
+}
+
+.bottom-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Spinner animation */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+/* Utility */
+
+.gap-8 {
+  gap: 8px;
+}
+
+.mt-8 {
+  margin-top: 8px;
+}
+
+.mt-12 {
+  margin-top: 12px;
+}
+
+.mt-16 {
+  margin-top: 16px;
+}
+
+.text-center {
+  text-align: center;
+}

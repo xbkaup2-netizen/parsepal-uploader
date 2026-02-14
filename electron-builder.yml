@@ -1,0 +1,39 @@
+appId: gg.parsepal.uploader
+productName: ParsePal Uploader
+copyright: Copyright 2026 ParsePal
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - assets/**/*
+  - package.json
+
+extraMetadata:
+  main: dist/main/main.js
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.png
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.png
+  category: public.app-category.utilities
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: assets/icon.png
+  category: Utility
