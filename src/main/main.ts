@@ -182,26 +182,28 @@ async function startWatcher(): Promise<void> {
 
 // ── IPC handlers ────────────────────────────────────────────────────
 function registerIpcHandlers(): void {
-  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
+  ipcMain.handle('auth:login', async (_event, usernameOrEmail: string, password: string) => {
     try {
       const result = await makeHttpRequest(
         `${API_BASE}/api/auth/login`,
         'POST',
         { 'Content-Type': 'application/json' },
-        JSON.stringify({ email, password })
+        JSON.stringify({ username: usernameOrEmail, password })
       );
 
       if (result.statusCode >= 200 && result.statusCode < 300) {
         const auth = result.data as AuthResponse;
-        const username = email.split('@')[0];
+        const username = auth.user?.username || usernameOrEmail;
         store.setSettings({ authToken: auth.access_token, username });
         return { ok: true, username };
       } else {
-        const msg = result.data?.detail || result.data?.message || 'Login failed';
-        return { ok: false, error: typeof msg === 'string' ? msg : JSON.stringify(msg) };
+        // Never expose raw API response — could contain sensitive data
+        const detail = result.data?.detail;
+        const safeMsg = typeof detail === 'string' ? detail : 'Invalid username or password';
+        return { ok: false, error: safeMsg };
       }
-    } catch (err: any) {
-      return { ok: false, error: err.message || 'Network error' };
+    } catch {
+      return { ok: false, error: 'Unable to connect to server. Please try again.' };
     }
   });
 

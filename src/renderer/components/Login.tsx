@@ -5,20 +5,20 @@ interface LoginProps {
 }
 
 export default function Login({ onSuccess }: LoginProps) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!email || !password) return;
+    if (!username || !password) return;
 
     setError('');
     setLoading(true);
 
     try {
-      const result = await window.api.login(email, password);
+      const result = await window.api.login(username, password);
       if (result.ok && result.username) {
         onSuccess(result.username);
       } else {
@@ -43,10 +43,10 @@ export default function Login({ onSuccess }: LoginProps) {
         <form className="login-form" onSubmit={handleSubmit}>
           <input
             className="input"
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            placeholder="Username or email"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             autoFocus
           />
           <input
@@ -62,7 +62,7 @@ export default function Login({ onSuccess }: LoginProps) {
           <button
             className="btn btn-primary"
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading || !username || !password}
             style={{ width: '100%', marginTop: '4px' }}
           >
             {loading ? 'Signing in...' : 'Sign In'}

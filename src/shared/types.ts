@@ -56,6 +56,7 @@ export interface AuthResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  user?: { username: string; email: string };
 }
 
 /** Upload response from the ParsePal API */
