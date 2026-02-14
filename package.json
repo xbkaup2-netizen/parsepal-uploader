@@ -2,6 +2,7 @@
   "name": "parsepal-uploader",
   "version": "1.0.0",
   "description": "ParsePal Desktop Uploader — Auto-upload WoW combat logs",
+  "author": "ParsePal",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "tsc -p tsconfig.main.json && concurrently -k \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\" \"vite --port 5173\" \"wait-on http://localhost:5173 && electron .\"",
