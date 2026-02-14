@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import type { AppSettings, HistoryEntry } from '../shared/types';
 
 const DEFAULTS: AppSettings = {
@@ -18,6 +18,9 @@ interface StoreData {
   history: HistoryEntry[];
 }
 
+// Key used to store the encrypted auth token (base64 encoded)
+const ENCRYPTED_TOKEN_KEY = '_authTokenEncrypted';
+
 class Store {
   private filePath: string;
   private data: StoreData;
@@ -33,8 +36,22 @@ class Store {
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
         const parsed = JSON.parse(raw);
+        const settings = { ...DEFAULTS, ...parsed.settings };
+
+        // Decrypt auth token if stored encrypted
+        if (parsed[ENCRYPTED_TOKEN_KEY] && safeStorage.isEncryptionAvailable()) {
+          try {
+            const buf = Buffer.from(parsed[ENCRYPTED_TOKEN_KEY], 'base64');
+            settings.authToken = safeStorage.decryptString(buf);
+          } catch {
+            settings.authToken = '';
+          }
+        }
+        // Clear any plaintext token from the settings object on disk
+        delete settings._authTokenEncrypted;
+
         return {
-          settings: { ...DEFAULTS, ...parsed.settings },
+          settings,
           history: Array.isArray(parsed.history) ? parsed.history : [],
         };
       }
@@ -50,7 +67,20 @@ class Store {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
+
+      // Build the object to persist — encrypt the auth token
+      const settingsToSave = { ...this.data.settings };
+      const output: Record<string, unknown> = {};
+
+      if (settingsToSave.authToken && safeStorage.isEncryptionAvailable()) {
+        output[ENCRYPTED_TOKEN_KEY] = safeStorage.encryptString(settingsToSave.authToken).toString('base64');
+        settingsToSave.authToken = ''; // Don't store plaintext
+      }
+
+      output.settings = settingsToSave;
+      output.history = this.data.history;
+
+      fs.writeFileSync(this.filePath, JSON.stringify(output, null, 2), 'utf-8');
     } catch (err) {
       console.error('Failed to save store:', err);
     }

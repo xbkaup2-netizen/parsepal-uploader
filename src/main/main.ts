@@ -225,9 +225,27 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('settings:set', (_event, partial) => {
-    store.setSettings(partial);
-    if (partial.launchOnStartup !== undefined) {
-      app.setLoginItemSettings({ openAtLogin: partial.launchOnStartup });
+    if (typeof partial !== 'object' || partial === null || Array.isArray(partial)) return;
+
+    // Whitelist allowed keys and validate types
+    const allowed: Partial<Record<string, string>> = {
+      wowPath: 'string', gameVersion: 'string', autoUpload: 'boolean',
+      minimizeToTray: 'boolean', launchOnStartup: 'boolean',
+    };
+    const validated: Record<string, unknown> = {};
+    for (const [key, expectedType] of Object.entries(allowed)) {
+      if (key in partial && typeof partial[key] === expectedType) {
+        validated[key] = partial[key];
+      }
+    }
+    // Validate wowPath doesn't contain traversal
+    if (typeof validated.wowPath === 'string' && validated.wowPath.includes('..')) {
+      delete validated.wowPath;
+    }
+
+    store.setSettings(validated);
+    if (validated.launchOnStartup !== undefined) {
+      app.setLoginItemSettings({ openAtLogin: validated.launchOnStartup as boolean });
     }
   });
 
