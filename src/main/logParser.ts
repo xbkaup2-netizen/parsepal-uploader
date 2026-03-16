@@ -148,6 +148,9 @@ export class LogParser {
       const [s, ms] = rest.split('.');
       return new Date(2000, month - 1, day, +h, +m, +s, +ms).getTime();
     };
-    return Math.round((toMs(end) - toMs(start)) / 1000);
+    let diffMs = toMs(end) - toMs(start);
+    // Handle year rollover (e.g. Dec 31 → Jan 1)
+    if (diffMs < 0) diffMs += 86_400_000;
+    return Math.max(0, Math.round(diffMs / 1000));
   }
 }

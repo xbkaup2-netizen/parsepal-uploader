@@ -17,7 +17,7 @@ export interface Fight {
 export interface UploadEntry {
   id: string;
   fight: Pick<Fight, 'type' | 'encounterName' | 'duration' | 'success' | 'keystoneLevel'>;
-  status: 'queued' | 'uploading' | 'done' | 'error';
+  status: 'queued' | 'uploading' | 'done' | 'error' | 'skipped';
   progress: number;
   timestamp: number;
   analysisUrl?: string;
@@ -25,6 +25,7 @@ export interface UploadEntry {
 }
 
 /** Watcher state */
+// TODO: 'paused' is never emitted by the backend but is referenced in Dashboard.tsx and app.css — wire it up or remove UI references
 export type WatcherStatus = 'idle' | 'watching' | 'waiting' | 'paused' | 'error';
 
 /** Persistent settings */

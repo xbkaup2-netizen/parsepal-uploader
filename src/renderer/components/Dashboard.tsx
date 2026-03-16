@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { UploadEntry, HistoryEntry, WatcherStatus } from '../../shared/types';
+import type { UploadEntry, HistoryEntry, WatcherStatus, UpdaterStatus } from '../../shared/types';
 
 interface DashboardProps {
   username: string;
 }
+
+type UpdateBannerState =
+  | { kind: 'hidden' }
+  | { kind: 'available'; version: string }
+  | { kind: 'downloading'; version: string; percent: number }
+  | { kind: 'ready'; version: string }
+  | { kind: 'error'; message: string };
 
 function formatTimeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -31,6 +38,36 @@ export default function Dashboard({ username }: DashboardProps) {
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [, setTick] = useState(0);
+  const [updateBanner, setUpdateBanner] = useState<UpdateBannerState>({ kind: 'hidden' });
+
+  // Check for updates on mount + subscribe to updater events
+  useEffect(() => {
+    window.api.checkForUpdate().catch(() => {});
+
+    window.api.onUpdaterStatus((evt: UpdaterStatus) => {
+      switch (evt.status) {
+        case 'available':
+          setUpdateBanner({ kind: 'available', version: evt.version ?? '' });
+          break;
+        case 'downloading':
+          setUpdateBanner((prev) =>
+            prev.kind === 'hidden' ? prev : { kind: 'downloading', version: (prev as any).version ?? '', percent: evt.percent ?? 0 },
+          );
+          break;
+        case 'ready':
+          setUpdateBanner((prev) => ({
+            kind: 'ready',
+            version: (prev as any).version ?? evt.version ?? '',
+          }));
+          break;
+        case 'error':
+          setUpdateBanner({ kind: 'error', message: evt.error ?? 'Update failed' });
+          break;
+      }
+    });
+
+    // Cleanup handled by existing removeAllListeners in the other useEffect
+  }, []);
 
   // Force re-render every 30s to update "time ago" labels
   useEffect(() => {
@@ -133,6 +170,78 @@ export default function Dashboard({ username }: DashboardProps) {
 
   return (
     <>
+      {/* Auto-update banner */}
+      {updateBanner.kind === 'available' && (
+        <div className="update-banner">
+          <span>
+            ParsePal v{updateBanner.version} is available
+          </span>
+          <button
+            className="btn btn-primary"
+            style={{ padding: '4px 12px', fontSize: '12px' }}
+            onClick={() => {
+              setUpdateBanner({ kind: 'downloading', version: updateBanner.version, percent: 0 });
+              window.api.installUpdate();
+            }}
+          >
+            Download &amp; Install
+          </button>
+          <button
+            className="update-banner-dismiss"
+            onClick={() => setUpdateBanner({ kind: 'hidden' })}
+            aria-label="Dismiss"
+          >
+            {'\u2715'}
+          </button>
+        </div>
+      )}
+
+      {updateBanner.kind === 'downloading' && (
+        <div className="update-banner">
+          <span>Downloading v{updateBanner.version}...</span>
+          <div className="update-progress-track">
+            <div
+              className="update-progress-bar"
+              style={{ width: `${Math.round(updateBanner.percent)}%` }}
+            />
+          </div>
+          <span className="update-percent">{Math.round(updateBanner.percent)}%</span>
+        </div>
+      )}
+
+      {updateBanner.kind === 'ready' && (
+        <div className="update-banner update-banner-ready">
+          <span>v{updateBanner.version} downloaded — restart to finish.</span>
+          <button
+            className="btn btn-primary"
+            style={{ padding: '4px 12px', fontSize: '12px' }}
+            onClick={() => window.api.installUpdate()}
+          >
+            Restart Now
+          </button>
+          <button
+            className="update-banner-dismiss"
+            onClick={() => setUpdateBanner({ kind: 'hidden' })}
+            aria-label="Dismiss"
+          >
+            {'\u2715'}
+          </button>
+        </div>
+      )}
+
+      {updateBanner.kind === 'error' && (
+        <div className="update-banner update-banner-error">
+          <span>Update error: {updateBanner.message}</span>
+          <button
+            className="update-banner-dismiss"
+            onClick={() => setUpdateBanner({ kind: 'hidden' })}
+            aria-label="Dismiss"
+          >
+            {'\u2715'}
+          </button>
+        </div>
+      )}
+
       <div className="content">
         {/* Status card */}
         <div className="card">

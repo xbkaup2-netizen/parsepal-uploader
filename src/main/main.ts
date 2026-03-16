@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeImage } from 'electron';
 import * as path from 'path';
 import * as https from 'https';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { autoUpdater } from 'electron-updater';
 import { store } from './store';
@@ -172,8 +173,25 @@ async function startWatcher(): Promise<void> {
   };
 
   fileWatcher = new FileWatcher(settings.wowPath, settings.gameVersion, (fight) => {
-    const entry = uploader!.uploadFight(fight);
-    mainWindow?.webContents.send('fight:detected', entry);
+    if (store.getSettings().autoUpload) {
+      const entry = uploader!.uploadFight(fight);
+      mainWindow?.webContents.send('fight:detected', entry);
+    } else {
+      // Still notify the UI so the fight appears in the list, but skip upload
+      mainWindow?.webContents.send('fight:detected', {
+        id: crypto.randomUUID(),
+        fight: {
+          type: fight.type,
+          encounterName: fight.encounterName,
+          duration: fight.duration,
+          success: fight.success,
+          keystoneLevel: fight.keystoneLevel,
+        },
+        status: 'skipped' as const,
+        progress: 0,
+        timestamp: Date.now(),
+      });
+    }
   });
   fileWatcher.onStatus = (status: WatcherStatus) => {
     mainWindow?.webContents.send('watcher:status-change', status);
@@ -328,7 +346,39 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('shell:open-external', (_event, url: string) => {
-    return shell.openExternal(url);
+    const ALLOWED_HOSTS = [
+      'parsepal.gg',
+      'www.parsepal.gg',
+      'battle.net',
+      'us.battle.net',
+      'eu.battle.net',
+      'github.com',
+      'discord.gg',
+      'discord.com',
+    ];
+
+    try {
+      const parsed = new URL(url);
+
+      if (parsed.protocol !== 'https:') {
+        console.warn(`[shell:open-external] Blocked non-https URL: ${url}`);
+        return;
+      }
+
+      const hostname = parsed.hostname.toLowerCase();
+      const allowed = ALLOWED_HOSTS.some(
+        (host) => hostname === host || hostname.endsWith(`.${host}`)
+      );
+
+      if (!allowed) {
+        console.warn(`[shell:open-external] Blocked disallowed host: ${hostname}`);
+        return;
+      }
+
+      return shell.openExternal(url);
+    } catch {
+      console.warn(`[shell:open-external] Blocked malformed URL: ${url}`);
+    }
   });
 
   // ── Auto-update IPC ───────────────────────────────────────────────
@@ -413,8 +463,11 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', async () => {
-  if (fileWatcher) {
-    await fileWatcher.stop();
-  }
+let isQuitting = false;
+app.on('before-quit', (e) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  e.preventDefault();
+  const cleanup = fileWatcher ? fileWatcher.stop() : Promise.resolve();
+  cleanup.finally(() => app.exit(0));
 });

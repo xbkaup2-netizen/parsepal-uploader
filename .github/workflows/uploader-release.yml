@@ -1,0 +1,41 @@
+name: Uploader Release
+
+on:
+  push:
+    tags:
+      - 'uploader-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build & publish Windows installer
+        run: npm run publish:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # electron-builder --publish always writes latest.yml alongside the
+      # installer into the GitHub Release.  Verify it was produced so that
+      # electron-updater can resolve auto-updates.
+      - name: Verify latest.yml was generated
+        shell: bash
+        run: |
+          if [ ! -f release/latest.yml ]; then
+            echo "::error::latest.yml not found in release/ — electron-updater needs this file"
+            exit 1
+          fi
+          echo "latest.yml present:"
+          cat release/latest.yml

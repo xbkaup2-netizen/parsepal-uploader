@@ -8,9 +8,11 @@ interface SettingsProps {
 
 export default function Settings({ onBack, onLogout }: SettingsProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('...');
 
   useEffect(() => {
     window.api.getSettings().then(setSettings);
+    window.api.getAppVersion().then(setAppVersion);
   }, []);
 
   async function updateSetting(patch: Partial<AppSettings>) {
@@ -137,7 +139,7 @@ export default function Settings({ onBack, onLogout }: SettingsProps) {
         className="text-center mt-16"
         style={{ color: 'var(--text-muted)', fontSize: '12px' }}
       >
-        ParsePal Uploader v1.0.0
+        ParsePal Uploader v{appVersion}
       </div>
     </div>
   );

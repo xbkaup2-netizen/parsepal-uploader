@@ -201,6 +201,9 @@ export class FileWatcher {
       this.processing = false;
     }
 
+    // Pick up any content written while scanExisting held the processing lock
+    await this.readNewContent();
+
     return fightCount;
   }
 
