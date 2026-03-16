@@ -25,7 +25,7 @@ export interface UploadEntry {
 }
 
 /** Watcher state */
-export type WatcherStatus = 'idle' | 'watching' | 'paused' | 'error';
+export type WatcherStatus = 'idle' | 'watching' | 'waiting' | 'paused' | 'error';
 
 /** Persistent settings */
 export interface AppSettings {
@@ -82,6 +82,8 @@ export interface ElectronAPI {
   startWatcher: () => Promise<void>;
   stopWatcher: () => Promise<void>;
   getWatcherStatus: () => Promise<WatcherStatus>;
+  getWatchedFile: () => Promise<string | null>;
+  scanExisting: () => Promise<number>;
 
   getUploadHistory: () => Promise<HistoryEntry[]>;
   clearHistory: () => Promise<void>;
@@ -89,9 +91,24 @@ export interface ElectronAPI {
   onFightDetected: (callback: (entry: UploadEntry) => void) => void;
   onUploadProgress: (callback: (entry: UploadEntry) => void) => void;
   onWatcherStatus: (callback: (status: WatcherStatus) => void) => void;
+  onWatchedFileChange: (callback: (filename: string | null) => void) => void;
 
   removeAllListeners: () => void;
   openExternal: (url: string) => Promise<void>;
+
+  // Auto-update
+  checkForUpdate: () => Promise<{ available: boolean; version?: string }>;
+  installUpdate: () => Promise<void>;
+  getAppVersion: () => Promise<string>;
+  onUpdaterStatus: (callback: (status: UpdaterStatus) => void) => void;
+}
+
+/** Auto-updater status event */
+export interface UpdaterStatus {
+  status: 'available' | 'downloading' | 'ready' | 'error';
+  version?: string;
+  percent?: number;
+  error?: string;
 }
 
 declare global {

@@ -2,6 +2,7 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeImage } f
 import * as path from 'path';
 import * as https from 'https';
 import * as fs from 'fs';
+import { autoUpdater } from 'electron-updater';
 import { store } from './store';
 import { FileWatcher } from './fileWatcher';
 import { Uploader } from './uploader';
@@ -76,6 +77,7 @@ function createWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      devTools: !app.isPackaged,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -175,6 +177,9 @@ async function startWatcher(): Promise<void> {
   });
   fileWatcher.onStatus = (status: WatcherStatus) => {
     mainWindow?.webContents.send('watcher:status-change', status);
+  };
+  fileWatcher.onFileChange = (filename: string | null) => {
+    mainWindow?.webContents.send('watcher:file-change', filename);
   };
 
   await fileWatcher.start();
@@ -294,6 +299,11 @@ function registerIpcHandlers(): void {
     await startWatcher();
   });
 
+  ipcMain.handle('watcher:scan-existing', async () => {
+    if (!fileWatcher) return 0;
+    return fileWatcher.scanExisting();
+  });
+
   ipcMain.handle('watcher:stop', async () => {
     if (fileWatcher) {
       await fileWatcher.stop();
@@ -303,6 +313,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('watcher:status', () => {
     return fileWatcher?.getStatus() || 'idle';
+  });
+
+  ipcMain.handle('watcher:watched-file', () => {
+    return fileWatcher?.getWatchedFile() || null;
   });
 
   ipcMain.handle('history:get', () => {
@@ -316,6 +330,64 @@ function registerIpcHandlers(): void {
   ipcMain.handle('shell:open-external', (_event, url: string) => {
     return shell.openExternal(url);
   });
+
+  // ── Auto-update IPC ───────────────────────────────────────────────
+  ipcMain.handle('updater:check', async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { available: !!result?.updateInfo, version: result?.updateInfo?.version };
+    } catch {
+      return { available: false };
+    }
+  });
+
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+
+  ipcMain.handle('app:version', () => {
+    return app.getVersion();
+  });
+}
+
+// ── Auto-updater ────────────────────────────────────────────────────
+function setupAutoUpdater(): void {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'available',
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'downloading',
+      percent: Math.round(progress.percent),
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'ready',
+      version: info.version,
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'error',
+      error: err.message,
+    });
+  });
+
+  // Check for updates every 30 minutes
+  autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 30 * 60 * 1000);
 }
 
 // ── App lifecycle ───────────────────────────────────────────────────
@@ -323,6 +395,10 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
   createTray();
+
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

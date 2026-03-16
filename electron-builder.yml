@@ -13,16 +13,36 @@ files:
 extraMetadata:
   main: dist/main/main.js
 
-win:
-  target:
-    - target: nsis
-      arch: [x64]
+# ── Code signing ──────────────────────────────────────────────────────
+# Set these env vars when you have your Certum cert:
+#   CSC_LINK=path/to/cert.pfx (or base64-encoded)
+#   CSC_KEY_PASSWORD=your-password
+# electron-builder picks them up automatically — no config changes needed.
 
-nsis:
-  oneClick: true
+win:
+  icon: assets/icon.ico
+  target:
+    - target: msi
+      arch: [x64]
+  # Sign if CSC_LINK env var is present, skip gracefully if not
+  signAndEditExecutable: true
+  signtoolOptions:
+    publisherName: ParsePal
+
+msi:
+  oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: false
-  artifactName: ParsePal-Setup.${ext}
+  artifactName: ParsePal-Setup-${version}.${ext}
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ParsePal Uploader
+
+# ── Auto-update (GitHub Releases) ────────────────────────────────────
+publish:
+  provider: github
+  owner: xbkaup2-netizen
+  repo: Parsepal
+  releaseType: release
 
 mac:
   target:

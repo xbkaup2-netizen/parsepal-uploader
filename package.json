@@ -1,6 +1,6 @@
 {
   "name": "parsepal-uploader",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "ParsePal Desktop Uploader — Auto-upload WoW combat logs",
   "author": "ParsePal",
   "main": "dist/main/main.js",
@@ -9,10 +9,12 @@
     "build": "tsc -p tsconfig.main.json && vite build",
     "package": "npm run build && electron-builder",
     "package:win": "npm run build && electron-builder --win",
-    "package:mac": "npm run build && electron-builder --mac"
+    "package:mac": "npm run build && electron-builder --mac",
+    "publish:win": "npm run build && electron-builder --win --publish always"
   },
   "dependencies": {
-    "chokidar": "^3.6.0"
+    "chokidar": "^3.6.0",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

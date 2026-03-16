@@ -25,9 +25,11 @@ function formatDuration(seconds: number): string {
 
 export default function Dashboard({ username }: DashboardProps) {
   const [status, setStatus] = useState<WatcherStatus>('idle');
+  const [watchedFile, setWatchedFile] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeUploads, setActiveUploads] = useState<Map<string, UploadEntry>>(new Map());
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [, setTick] = useState(0);
 
   // Force re-render every 30s to update "time ago" labels
@@ -38,11 +40,13 @@ export default function Dashboard({ username }: DashboardProps) {
 
   const loadData = useCallback(async () => {
     try {
-      const [watcherStatus, uploadHistory] = await Promise.all([
+      const [watcherStatus, currentFile, uploadHistory] = await Promise.all([
         window.api.getWatcherStatus(),
+        window.api.getWatchedFile(),
         window.api.getUploadHistory(),
       ]);
       setStatus(watcherStatus);
+      setWatchedFile(currentFile);
       setHistory(uploadHistory);
       if (uploadHistory.length > 0) {
         setLastUpdate(uploadHistory[0].timestamp);
@@ -86,6 +90,10 @@ export default function Dashboard({ username }: DashboardProps) {
       setStatus(newStatus);
     });
 
+    window.api.onWatchedFileChange((filename: string | null) => {
+      setWatchedFile(filename);
+    });
+
     return () => {
       window.api.removeAllListeners();
     };
@@ -93,7 +101,7 @@ export default function Dashboard({ username }: DashboardProps) {
 
   async function handlePauseResume() {
     try {
-      if (status === 'watching') {
+      if (status === 'watching' || status === 'waiting') {
         await window.api.stopWatcher();
       } else {
         await window.api.startWatcher();
@@ -106,6 +114,7 @@ export default function Dashboard({ username }: DashboardProps) {
   function getStatusLabel(s: WatcherStatus): string {
     switch (s) {
       case 'watching': return 'Watching';
+      case 'waiting': return 'Waiting for combat log...';
       case 'paused': return 'Paused';
       case 'error': return 'Error';
       default: return 'Idle';
@@ -131,7 +140,11 @@ export default function Dashboard({ username }: DashboardProps) {
             <span className={`status-dot ${status}`} />
             <span className="dashboard-status-text">{getStatusLabel(status)}</span>
           </div>
-          <div className="dashboard-status-file">WoWCombatLog.txt</div>
+          <div className="dashboard-status-file">
+            {status === 'waiting'
+              ? 'Waiting for WoWCombatLog...'
+              : watchedFile || 'WoWCombatLog.txt'}
+          </div>
           {lastUpdate && (
             <div className="dashboard-status-time">
               Last updated: {formatTimeAgo(lastUpdate)}
@@ -228,9 +241,28 @@ export default function Dashboard({ username }: DashboardProps) {
           <button
             className="btn btn-secondary"
             style={{ padding: '6px 14px', fontSize: '12px' }}
+            disabled={scanning || status !== 'watching'}
+            onClick={async () => {
+              setScanning(true);
+              try {
+                await window.api.scanExisting();
+                const updatedHistory = await window.api.getUploadHistory();
+                setHistory(updatedHistory);
+              } catch {
+                // Silent fail
+              } finally {
+                setScanning(false);
+              }
+            }}
+          >
+            {scanning ? 'Scanning...' : 'Scan Existing Logs'}
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ padding: '6px 14px', fontSize: '12px' }}
             onClick={handlePauseResume}
           >
-            {status === 'watching' ? 'Pause' : 'Resume'}
+            {status === 'watching' || status === 'waiting' ? 'Pause' : 'Resume'}
           </button>
         </div>
       </div>

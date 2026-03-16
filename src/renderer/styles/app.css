@@ -192,6 +192,16 @@ body {
   background: var(--red);
 }
 
+.status-dot.waiting {
+  background: var(--yellow);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .status-dot.idle {
   background: var(--text-muted);
 }

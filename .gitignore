@@ -4,4 +4,5 @@ release/
 *.exe
 *.dmg
 *.AppImage
+*.msi
 .env

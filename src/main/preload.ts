@@ -32,6 +32,12 @@ const api: ElectronAPI = {
   getWatcherStatus: () =>
     ipcRenderer.invoke('watcher:status'),
 
+  getWatchedFile: () =>
+    ipcRenderer.invoke('watcher:watched-file'),
+
+  scanExisting: () =>
+    ipcRenderer.invoke('watcher:scan-existing'),
+
   getUploadHistory: () =>
     ipcRenderer.invoke('history:get'),
 
@@ -50,14 +56,34 @@ const api: ElectronAPI = {
     ipcRenderer.on('watcher:status-change', (_event, status) => callback(status));
   },
 
+  onWatchedFileChange: (callback) => {
+    ipcRenderer.on('watcher:file-change', (_event, filename) => callback(filename));
+  },
+
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('fight:detected');
     ipcRenderer.removeAllListeners('upload:progress');
     ipcRenderer.removeAllListeners('watcher:status-change');
+    ipcRenderer.removeAllListeners('watcher:file-change');
+    ipcRenderer.removeAllListeners('updater:status');
   },
 
   openExternal: (url: string) =>
     ipcRenderer.invoke('shell:open-external', url),
+
+  // Auto-update
+  checkForUpdate: () =>
+    ipcRenderer.invoke('updater:check'),
+
+  installUpdate: () =>
+    ipcRenderer.invoke('updater:install'),
+
+  getAppVersion: () =>
+    ipcRenderer.invoke('app:version'),
+
+  onUpdaterStatus: (callback) => {
+    ipcRenderer.on('updater:status', (_event, status) => callback(status));
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);
