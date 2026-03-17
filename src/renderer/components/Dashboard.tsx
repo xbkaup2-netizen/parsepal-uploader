@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { UploadEntry, HistoryEntry, WatcherStatus, UpdaterStatus } from '../../shared/types';
+import type { UploadEntry, HistoryEntry, WatcherStatus, UpdaterStatus, ScanProgress, ScannedFileGroup } from '../../shared/types';
 
 interface DashboardProps {
   username: string;
@@ -25,9 +25,28 @@ function formatTimeAgo(timestamp: number): string {
 }
 
 function formatDuration(seconds: number): string {
+  if (typeof seconds !== 'number' || isNaN(seconds)) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatFileDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function getAgeWarning(date: Date | string): string | null {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const daysOld = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (daysOld >= 21) return `${Math.floor(daysOld / 7)} weeks old`;
+  if (daysOld >= 7) return `${Math.floor(daysOld / 7)} week${Math.floor(daysOld / 7) > 1 ? 's' : ''} old`;
+  if (daysOld >= 2) return `${daysOld} days old`;
+  return null;
 }
 
 export default function Dashboard({ username }: DashboardProps) {
@@ -37,12 +56,29 @@ export default function Dashboard({ username }: DashboardProps) {
   const [activeUploads, setActiveUploads] = useState<Map<string, UploadEntry>>(new Map());
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [logFileCount, setLogFileCount] = useState<number>(0);
   const [, setTick] = useState(0);
   const [updateBanner, setUpdateBanner] = useState<UpdateBannerState>({ kind: 'hidden' });
 
-  // Check for updates on mount + subscribe to updater events
+  // Scan modal state
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scannedGroups, setScannedGroups] = useState<ScannedFileGroup[]>([]);
+  const [selectedFights, setSelectedFights] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+
+  // Fetch log file count on mount + when watcher status changes
+  useEffect(() => {
+    window.api.getLogFileCount().then(setLogFileCount).catch(() => {});
+  }, [status]);
+
+  // Check for updates on mount + subscribe to updater/scan events
   useEffect(() => {
     window.api.checkForUpdate().catch(() => {});
+
+    window.api.onScanProgress((progress: ScanProgress) => {
+      setScanProgress(progress);
+    });
 
     window.api.onUpdaterStatus((evt: UpdaterStatus) => {
       switch (evt.status) {
@@ -65,8 +101,6 @@ export default function Dashboard({ username }: DashboardProps) {
           break;
       }
     });
-
-    // Cleanup handled by existing removeAllListeners in the other useEffect
   }, []);
 
   // Force re-render every 30s to update "time ago" labels
@@ -148,6 +182,84 @@ export default function Dashboard({ username }: DashboardProps) {
     }
   }
 
+  // ── Scan modal handlers ──────────────────────────────────────────
+  async function handleScanPreview() {
+    setScanning(true);
+    setScanProgress(null);
+    setScanModalOpen(true);
+    setScannedGroups([]);
+    setSelectedFights(new Set());
+
+    try {
+      const groups: ScannedFileGroup[] = await window.api.scanAllPreview();
+      setScannedGroups(groups);
+      // Auto-select all fights by default
+      const allIds = new Set<string>();
+      for (const g of groups) {
+        for (const f of g.fights) {
+          allIds.add(f.id);
+        }
+      }
+      setSelectedFights(allIds);
+    } catch {
+      // Silent fail
+    } finally {
+      setScanning(false);
+      setScanProgress(null);
+    }
+  }
+
+  function toggleFight(id: string) {
+    setSelectedFights((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleFileGroup(group: ScannedFileGroup, selectAll: boolean) {
+    setSelectedFights((prev) => {
+      const next = new Set(prev);
+      for (const f of group.fights) {
+        if (selectAll) {
+          next.add(f.id);
+        } else {
+          next.delete(f.id);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function handleUploadSelected() {
+    if (selectedFights.size === 0) return;
+    setUploading(true);
+    try {
+      await window.api.uploadSelected(Array.from(selectedFights));
+      const updatedHistory = await window.api.getUploadHistory();
+      setHistory(updatedHistory);
+      setScanModalOpen(false);
+      setScannedGroups([]);
+      setSelectedFights(new Set());
+    } catch {
+      // Silent fail
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function closeScanModal() {
+    if (!uploading) {
+      setScanModalOpen(false);
+      setScannedGroups([]);
+      setSelectedFights(new Set());
+    }
+  }
+
   function getStatusLabel(s: WatcherStatus): string {
     switch (s) {
       case 'watching': return 'Watching';
@@ -167,6 +279,9 @@ export default function Dashboard({ username }: DashboardProps) {
 
   // Merge active uploads into display list
   const activeEntries = Array.from(activeUploads.values());
+
+  // Total fights found across all groups
+  const totalScannedFights = scannedGroups.reduce((sum, g) => sum + g.fights.length, 0);
 
   return (
     <>
@@ -335,6 +450,150 @@ export default function Dashboard({ username }: DashboardProps) {
         )}
       </div>
 
+      {/* Scan modal overlay */}
+      {scanModalOpen && (
+        <div className="scan-modal-overlay" onClick={closeScanModal}>
+          <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="scan-modal-header">
+              <h3 className="scan-modal-title">Browse Log Files</h3>
+              <button
+                className="scan-modal-close"
+                onClick={closeScanModal}
+                disabled={uploading}
+                aria-label="Close"
+              >
+                {'\u2715'}
+              </button>
+            </div>
+
+            <div className="scan-modal-body">
+              {scanning ? (
+                <div className="scan-modal-scanning">
+                  <div className="spinner" style={{ fontSize: '24px', color: 'var(--text-dim)' }}>{'\u21BB'}</div>
+                  <div style={{ marginTop: '12px', fontSize: '14px' }}>
+                    {scanProgress
+                      ? `Scanning file ${scanProgress.fileIndex} of ${scanProgress.totalFiles}...`
+                      : 'Scanning log files...'}
+                  </div>
+                  {scanProgress && scanProgress.currentFile && (
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      {scanProgress.currentFile}
+                    </div>
+                  )}
+                  {scanProgress && (
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-dim)' }}>
+                      {scanProgress.fightsFound} fight{scanProgress.fightsFound !== 1 ? 's' : ''} found so far
+                    </div>
+                  )}
+                </div>
+              ) : totalScannedFights === 0 ? (
+                <div className="scan-modal-empty">
+                  <div style={{ fontSize: '14px', color: 'var(--text-dim)' }}>
+                    No fights found in any log files.
+                  </div>
+                </div>
+              ) : (
+                <div className="scan-modal-results">
+                  {scannedGroups.map((group) => {
+                    const allSelected = group.fights.every((f) => selectedFights.has(f.id));
+                    const someSelected = group.fights.some((f) => selectedFights.has(f.id));
+                    const ageWarning = getAgeWarning(group.sourceFileDate);
+
+                    return (
+                      <div key={group.sourceFile} className="scan-file-group">
+                        <div className="scan-file-header">
+                          <label className="scan-file-header-label">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someSelected && !allSelected;
+                              }}
+                              onChange={() => toggleFileGroup(group, !allSelected)}
+                              className="scan-checkbox"
+                            />
+                            <span className="scan-file-name">
+                              {formatFileDate(group.sourceFileDate)} — {group.sourceFile}
+                            </span>
+                          </label>
+                          {ageWarning && (
+                            <span className="scan-age-warning">{ageWarning}</span>
+                          )}
+                          <span className="scan-file-count">
+                            {group.fights.length} fight{group.fights.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <ul className="scan-fight-list">
+                          {group.fights.map((fight) => {
+                            const fightAge = getAgeWarning(fight.sourceFileDate);
+                            return (
+                              <li key={fight.id} className="scan-fight-item">
+                                <label className="scan-fight-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedFights.has(fight.id)}
+                                    onChange={() => toggleFight(fight.id)}
+                                    className="scan-checkbox"
+                                  />
+                                  <span className={`scan-fight-badge ${fight.success ? 'kill' : 'wipe'}`}>
+                                    {fight.success ? 'Kill' : 'Wipe'}
+                                  </span>
+                                  <span className="scan-fight-name">
+                                    {fight.encounterName}
+                                    {fight.keystoneLevel ? ` +${fight.keystoneLevel}` : ''}
+                                  </span>
+                                  <span className="scan-fight-details">
+                                    {formatDuration(fight.duration)}
+                                    {' \u00B7 '}
+                                    {fight.playerCount} player{fight.playerCount !== 1 ? 's' : ''}
+                                    {fight.type === 'mythicplus' ? ' \u00B7 M+' : ''}
+                                  </span>
+                                  {fightAge && (
+                                    <span className="scan-fight-age">{fightAge}</span>
+                                  )}
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {!scanning && totalScannedFights > 0 && (
+              <div className="scan-modal-footer">
+                <div className="scan-modal-footer-info">
+                  {selectedFights.size} of {totalScannedFights} fight{totalScannedFights !== 1 ? 's' : ''} selected
+                </div>
+                <div className="scan-modal-footer-actions">
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 14px', fontSize: '12px' }}
+                    onClick={closeScanModal}
+                    disabled={uploading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 14px', fontSize: '12px' }}
+                    disabled={selectedFights.size === 0 || uploading}
+                    onClick={handleUploadSelected}
+                  >
+                    {uploading
+                      ? 'Uploading...'
+                      : `Upload Selected (${selectedFights.size})`}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Bottom bar */}
       <div className="bottom-bar">
         <div className="bottom-bar-stat">
@@ -350,21 +609,16 @@ export default function Dashboard({ username }: DashboardProps) {
           <button
             className="btn btn-secondary"
             style={{ padding: '6px 14px', fontSize: '12px' }}
-            disabled={scanning || status !== 'watching'}
-            onClick={async () => {
-              setScanning(true);
-              try {
-                await window.api.scanExisting();
-                const updatedHistory = await window.api.getUploadHistory();
-                setHistory(updatedHistory);
-              } catch {
-                // Silent fail
-              } finally {
-                setScanning(false);
-              }
-            }}
+            disabled={scanning}
+            onClick={handleScanPreview}
           >
-            {scanning ? 'Scanning...' : 'Scan Existing Logs'}
+            {scanning
+              ? scanProgress
+                ? `Scanning file ${scanProgress.fileIndex} of ${scanProgress.totalFiles}...`
+                : 'Scanning...'
+              : logFileCount > 0
+                ? `Scan All Logs (${logFileCount} file${logFileCount !== 1 ? 's' : ''})`
+                : 'Scan All Logs'}
           </button>
           <button
             className="btn btn-secondary"

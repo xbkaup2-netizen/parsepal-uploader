@@ -52,6 +52,37 @@ export interface HistoryEntry {
   status: 'done' | 'error';
 }
 
+/** Progress info during scan-all-logs */
+export interface ScanProgress {
+  currentFile: string;
+  fileIndex: number;
+  totalFiles: number;
+  fightsFound: number;
+}
+
+/** A fight discovered during scan-all-preview (not yet uploaded) */
+export interface ScannedFight {
+  id: string;
+  encounterName: string;
+  type: 'raid' | 'mythicplus';
+  success: boolean;
+  duration: number;
+  keystoneLevel?: number;
+  playerCount: number;
+  startTime: string;
+  sourceFile: string;
+  sourceFileDate: Date;
+  lines: string[];
+  fileSize: number;
+}
+
+/** Scanned fights grouped by source file */
+export interface ScannedFileGroup {
+  sourceFile: string;
+  sourceFileDate: Date;
+  fights: ScannedFight[];
+}
+
 /** Auth response from the ParsePal API */
 export interface AuthResponse {
   access_token: string;
@@ -85,6 +116,11 @@ export interface ElectronAPI {
   getWatcherStatus: () => Promise<WatcherStatus>;
   getWatchedFile: () => Promise<string | null>;
   scanExisting: () => Promise<number>;
+  scanAllLogs: () => Promise<number>;
+  scanAllPreview: () => Promise<ScannedFileGroup[]>;
+  uploadSelected: (fightIds: string[]) => Promise<number>;
+  getLogFileCount: () => Promise<number>;
+  onScanProgress: (callback: (progress: ScanProgress) => void) => void;
 
   getUploadHistory: () => Promise<HistoryEntry[]>;
   clearHistory: () => Promise<void>;

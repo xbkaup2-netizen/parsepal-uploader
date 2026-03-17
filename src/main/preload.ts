@@ -38,6 +38,22 @@ const api: ElectronAPI = {
   scanExisting: () =>
     ipcRenderer.invoke('watcher:scan-existing'),
 
+  scanAllLogs: () =>
+    ipcRenderer.invoke('watcher:scan-all'),
+
+  scanAllPreview: () =>
+    ipcRenderer.invoke('watcher:scan-all-preview'),
+
+  uploadSelected: (fightIds: string[]) =>
+    ipcRenderer.invoke('watcher:upload-selected', fightIds),
+
+  getLogFileCount: () =>
+    ipcRenderer.invoke('watcher:log-count'),
+
+  onScanProgress: (callback) => {
+    ipcRenderer.on('watcher:scan-progress', (_event, progress) => callback(progress));
+  },
+
   getUploadHistory: () =>
     ipcRenderer.invoke('history:get'),
 
@@ -66,6 +82,7 @@ const api: ElectronAPI = {
     ipcRenderer.removeAllListeners('watcher:status-change');
     ipcRenderer.removeAllListeners('watcher:file-change');
     ipcRenderer.removeAllListeners('updater:status');
+    ipcRenderer.removeAllListeners('watcher:scan-progress');
   },
 
   openExternal: (url: string) =>

@@ -5,9 +5,9 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { autoUpdater } from 'electron-updater';
 import { store } from './store';
-import { FileWatcher } from './fileWatcher';
+import { FileWatcher, ScanProgress } from './fileWatcher';
 import { Uploader } from './uploader';
-import type { AuthResponse, WatcherStatus } from '../shared/types';
+import type { AuthResponse, WatcherStatus, ScannedFight, ScannedFileGroup } from '../shared/types';
 
 const API_BASE = 'https://parsepal-production.up.railway.app';
 
@@ -15,6 +15,9 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let fileWatcher: FileWatcher | null = null;
 let uploader: Uploader | null = null;
+
+// Cache of scanned fights from the last preview scan, keyed by fight ID
+let scannedFightsCache: Map<string, ScannedFight> = new Map();
 
 // ── Single instance lock ────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -78,7 +81,7 @@ function createWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: !app.isPackaged,
+      devTools: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -201,6 +204,13 @@ async function startWatcher(): Promise<void> {
   };
 
   await fileWatcher.start();
+
+  // Auto-scan the most recent log file so existing fights appear immediately
+  if (fileWatcher.getStatus() === 'watching') {
+    fileWatcher.scanExisting().catch((err) => {
+      console.error('Auto-scan of latest log failed:', err);
+    });
+  }
 }
 
 // ── IPC handlers ────────────────────────────────────────────────────
@@ -322,6 +332,166 @@ function registerIpcHandlers(): void {
     return fileWatcher.scanExisting();
   });
 
+  ipcMain.handle('watcher:scan-all', async () => {
+    const settings = store.getSettings();
+
+    // If we have a live fileWatcher, use it (it knows the logsDir and onFight callback)
+    if (fileWatcher) {
+      return fileWatcher.scanAllLogs((progress: ScanProgress) => {
+        mainWindow?.webContents.send('watcher:scan-progress', progress);
+      });
+    }
+
+    // No watcher running — create a temporary one just for scanning
+    if (!settings.wowPath) return 0;
+
+    const tempOnFight = (fight: import('../shared/types').Fight) => {
+      if (settings.authToken && uploader) {
+        if (store.getSettings().autoUpload) {
+          const entry = uploader.uploadFight(fight);
+          mainWindow?.webContents.send('fight:detected', entry);
+        } else {
+          mainWindow?.webContents.send('fight:detected', {
+            id: crypto.randomUUID(),
+            fight: {
+              type: fight.type,
+              encounterName: fight.encounterName,
+              duration: fight.duration,
+              success: fight.success,
+              keystoneLevel: fight.keystoneLevel,
+            },
+            status: 'skipped' as const,
+            progress: 0,
+            timestamp: Date.now(),
+          });
+        }
+      } else {
+        mainWindow?.webContents.send('fight:detected', {
+          id: crypto.randomUUID(),
+          fight: {
+            type: fight.type,
+            encounterName: fight.encounterName,
+            duration: fight.duration,
+            success: fight.success,
+            keystoneLevel: fight.keystoneLevel,
+          },
+          status: 'skipped' as const,
+          progress: 0,
+          timestamp: Date.now(),
+        });
+      }
+    };
+
+    const tempWatcher = new FileWatcher(settings.wowPath, settings.gameVersion, tempOnFight);
+    const count = await tempWatcher.scanAllLogs((progress: ScanProgress) => {
+      mainWindow?.webContents.send('watcher:scan-progress', progress);
+    });
+    return count;
+  });
+
+  ipcMain.handle('watcher:scan-all-preview', async () => {
+    const settings = store.getSettings();
+    let watcher: FileWatcher;
+
+    if (fileWatcher) {
+      watcher = fileWatcher;
+    } else if (settings.wowPath) {
+      watcher = new FileWatcher(settings.wowPath, settings.gameVersion, () => {});
+    } else {
+      return [];
+    }
+
+    const groups: ScannedFileGroup[] = await watcher.scanAllLogsPreview(
+      (progress: ScanProgress) => {
+        mainWindow?.webContents.send('watcher:scan-progress', progress);
+      },
+    );
+
+    // Cache all fights by ID so we can look them up for upload
+    scannedFightsCache.clear();
+    for (const group of groups) {
+      for (const fight of group.fights) {
+        scannedFightsCache.set(fight.id, fight);
+      }
+    }
+
+    // Strip the raw lines from the response to avoid sending huge data over IPC
+    // The main process keeps them in the cache
+    const stripped: ScannedFileGroup[] = groups.map((g) => ({
+      ...g,
+      fights: g.fights.map((f) => ({ ...f, lines: [] })),
+    }));
+
+    return stripped;
+  });
+
+  ipcMain.handle('watcher:upload-selected', async (_event, fightIds: string[]) => {
+    if (!Array.isArray(fightIds) || fightIds.length === 0) return 0;
+
+    const settings = store.getSettings();
+    if (!settings.authToken) return 0;
+
+    // Ensure uploader exists
+    if (!uploader) {
+      uploader = new Uploader(() => store.getSettings().authToken);
+      uploader.onProgress = (entry) => {
+        mainWindow?.webContents.send('upload:progress', entry);
+        if (entry.status === 'done' || entry.status === 'error') {
+          store.addHistory({
+            id: entry.id,
+            encounterName: entry.fight.encounterName,
+            type: entry.fight.type,
+            success: entry.fight.success,
+            duration: entry.fight.duration,
+            keystoneLevel: entry.fight.keystoneLevel,
+            timestamp: entry.timestamp,
+            analysisUrl: entry.analysisUrl,
+            status: entry.status === 'done' ? 'done' : 'error',
+          });
+        }
+      };
+    }
+
+    let uploadCount = 0;
+    for (const id of fightIds) {
+      const sf = scannedFightsCache.get(id);
+      if (!sf) continue;
+
+      const fight = {
+        type: sf.type as 'raid' | 'mythicplus',
+        encounterName: sf.encounterName,
+        encounterID: 0,
+        startTime: sf.startTime,
+        endTime: '',
+        duration: sf.duration,
+        success: sf.success,
+        keystoneLevel: sf.keystoneLevel,
+        lines: sf.lines,
+        playerCount: sf.playerCount,
+        fileSize: sf.fileSize,
+      };
+
+      const entry = uploader.uploadFight(fight);
+      mainWindow?.webContents.send('fight:detected', entry);
+      uploadCount++;
+
+      // Remove from cache after queuing upload
+      scannedFightsCache.delete(id);
+    }
+
+    return uploadCount;
+  });
+
+  ipcMain.handle('watcher:log-count', () => {
+    if (fileWatcher) {
+      return fileWatcher.listAllLogs().length;
+    }
+    const settings = store.getSettings();
+    if (!settings.wowPath) return 0;
+    const tempWatcher = new FileWatcher(settings.wowPath, settings.gameVersion, () => {});
+    return tempWatcher.listAllLogs().length;
+  });
+
   ipcMain.handle('watcher:stop', async () => {
     if (fileWatcher) {
       await fileWatcher.stop();
@@ -402,8 +572,13 @@ function registerIpcHandlers(): void {
 
 // ── Auto-updater ────────────────────────────────────────────────────
 function setupAutoUpdater(): void {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  try {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+  } catch {
+    console.warn('Auto-updater init failed — skipping');
+    return;
+  }
 
   autoUpdater.on('update-available', (info) => {
     mainWindow?.webContents.send('updater:status', {
@@ -447,7 +622,11 @@ app.whenReady().then(() => {
   createTray();
 
   if (app.isPackaged) {
-    setupAutoUpdater();
+    try {
+      setupAutoUpdater();
+    } catch {
+      console.warn('Auto-updater setup failed — app will run without auto-updates');
+    }
   }
 
   app.on('activate', () => {

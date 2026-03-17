@@ -1,9 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import * as chokidar from 'chokidar';
 import * as readline from 'readline';
 import { LogParser } from './logParser';
-import type { Fight, WatcherStatus } from '../shared/types';
+import type { Fight, WatcherStatus, ScanProgress, ScannedFight, ScannedFileGroup } from '../shared/types';
+
+export type { ScanProgress };
 
 const LOG_GLOB = 'WoWCombatLog';
 
@@ -13,7 +16,7 @@ const LOG_GLOB = 'WoWCombatLog';
  * to new files as WoW creates them (timestamped filenames).
  */
 export class FileWatcher {
-  private logsDir: string;
+  public readonly logsDir: string;
   private logPath: string | null = null;
   private parser: LogParser;
   private onFight: (fight: Fight) => void;
@@ -205,6 +208,189 @@ export class FileWatcher {
     await this.readNewContent();
 
     return fightCount;
+  }
+
+  /**
+   * List all WoWCombatLog*.txt files in the Logs directory, newest first.
+   */
+  listAllLogs(): { name: string; fullPath: string; mtimeMs: number }[] {
+    if (!fs.existsSync(this.logsDir)) return [];
+    try {
+      const files = fs.readdirSync(this.logsDir);
+      const logFiles: { name: string; fullPath: string; mtimeMs: number }[] = [];
+      for (const f of files) {
+        if (!f.startsWith(LOG_GLOB) || !f.endsWith('.txt')) continue;
+        const fullPath = path.join(this.logsDir, f);
+        try {
+          const stat = fs.statSync(fullPath);
+          logFiles.push({ name: f, fullPath, mtimeMs: stat.mtimeMs });
+        } catch {
+          // Skip files we can't stat
+        }
+      }
+      logFiles.sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first
+      return logFiles;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Scan ALL WoWCombatLog*.txt files (newest first) and emit detected fights.
+   * Reports progress via the optional callback. Does NOT affect the live watcher.
+   */
+  async scanAllLogs(
+    onProgress?: (progress: ScanProgress) => void,
+    seenFights?: Set<string>,
+  ): Promise<number> {
+    const logFiles = this.listAllLogs();
+    if (logFiles.length === 0) return 0;
+
+    let totalFights = 0;
+    const seen = seenFights ?? new Set<string>();
+
+    for (let i = 0; i < logFiles.length; i++) {
+      const logFile = logFiles[i];
+      onProgress?.({
+        currentFile: logFile.name,
+        fileIndex: i + 1,
+        totalFiles: logFiles.length,
+        fightsFound: totalFights,
+      });
+
+      const parser = new LogParser((fight) => {
+        // Deduplicate by encounter name + start time
+        const key = `${fight.encounterName}|${fight.startTime}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        totalFights++;
+        this.onFight(fight);
+      });
+
+      try {
+        const stream = fs.createReadStream(logFile.fullPath, { encoding: 'utf-8' });
+        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+        for await (const line of rl) {
+          parser.processLine(line);
+        }
+      } catch (err) {
+        console.error(`Error scanning ${logFile.name}:`, err);
+      }
+    }
+
+    onProgress?.({
+      currentFile: '',
+      fileIndex: logFiles.length,
+      totalFiles: logFiles.length,
+      fightsFound: totalFights,
+    });
+
+    return totalFights;
+  }
+
+  /**
+   * Scan ALL WoWCombatLog*.txt files and return detected fights grouped by file.
+   * Does NOT call onFight — purely returns data for the UI to display.
+   */
+  async scanAllLogsPreview(
+    onProgress?: (progress: ScanProgress) => void,
+  ): Promise<ScannedFileGroup[]> {
+    const logFiles = this.listAllLogs();
+    if (logFiles.length === 0) return [];
+
+    const groups: ScannedFileGroup[] = [];
+    const seen = new Set<string>();
+    let totalFights = 0;
+
+    for (let i = 0; i < logFiles.length; i++) {
+      const logFile = logFiles[i];
+      onProgress?.({
+        currentFile: logFile.name,
+        fileIndex: i + 1,
+        totalFiles: logFiles.length,
+        fightsFound: totalFights,
+      });
+
+      const fights: ScannedFight[] = [];
+      const sourceFileDate = new Date(logFile.mtimeMs);
+
+      const parser = new LogParser((fight: Fight) => {
+        const key = `${fight.encounterName}|${fight.startTime}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        totalFights++;
+
+        fights.push({
+          id: crypto.randomUUID(),
+          encounterName: fight.encounterName,
+          type: fight.type,
+          success: fight.success,
+          duration: typeof fight.duration === 'number' && !isNaN(fight.duration) ? fight.duration : 0,
+          keystoneLevel: fight.keystoneLevel,
+          playerCount: fight.playerCount,
+          startTime: fight.startTime,
+          sourceFile: logFile.name,
+          sourceFileDate,
+          lines: fight.lines,
+          fileSize: fight.fileSize,
+        });
+      });
+
+      try {
+        const stream = fs.createReadStream(logFile.fullPath, { encoding: 'utf-8' });
+        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+        for await (const line of rl) {
+          parser.processLine(line);
+        }
+      } catch (err) {
+        console.error(`Error scanning ${logFile.name}:`, err);
+      }
+
+      if (fights.length > 0) {
+        groups.push({
+          sourceFile: logFile.name,
+          sourceFileDate,
+          fights,
+        });
+      }
+    }
+
+    onProgress?.({
+      currentFile: '',
+      fileIndex: logFiles.length,
+      totalFiles: logFiles.length,
+      fightsFound: totalFights,
+    });
+
+    return groups;
+  }
+
+  /**
+   * Given an array of ScannedFight objects, upload each one via the onFight callback.
+   * Returns the count of fights dispatched.
+   */
+  uploadScannedFights(fights: ScannedFight[]): number {
+    let count = 0;
+    for (const sf of fights) {
+      const fight: Fight = {
+        type: sf.type,
+        encounterName: sf.encounterName,
+        encounterID: 0,
+        startTime: sf.startTime,
+        endTime: '',
+        duration: sf.duration,
+        success: sf.success,
+        keystoneLevel: sf.keystoneLevel,
+        lines: sf.lines,
+        playerCount: sf.playerCount,
+        fileSize: sf.fileSize,
+      };
+      this.onFight(fight);
+      count++;
+    }
+    return count;
   }
 
   async stop(): Promise<void> {

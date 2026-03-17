@@ -60,11 +60,13 @@ export class Uploader {
     const logData = fight.lines.join('\n');
     let fileBuffer = Buffer.from(logData, 'utf-8');
     let filename = 'fight.txt';
+    const rawSize = fileBuffer.length;
 
-    if (fileBuffer.length > MAX_UNCOMPRESSED) {
-      fileBuffer = zlib.gzipSync(fileBuffer);
-      filename = 'fight.txt.gz';
-    }
+    // Always gzip — combat logs are highly compressible
+    fileBuffer = zlib.gzipSync(fileBuffer, { level: 6 });
+    filename = 'fight.txt.gz';
+
+    console.log(`Upload: ${fight.encounterName} — ${(rawSize / 1024).toFixed(0)}KB raw → ${(fileBuffer.length / 1024).toFixed(0)}KB gzipped (${fight.lines.length} lines)`);
 
     const metadata = JSON.stringify({
       type: fight.type,
@@ -147,6 +149,8 @@ export class Uploader {
       };
 
       const req = https.request(options, (res) => {
+        // Clear timeout on response
+        req.setTimeout(0);
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
         res.on('end', () => {
@@ -162,6 +166,11 @@ export class Uploader {
             reject(new Error(`HTTP ${res.statusCode}: ${raw.substring(0, 200)}`));
           }
         });
+      });
+
+      // 2-minute timeout for large uploads
+      req.setTimeout(120000, () => {
+        req.destroy(new Error('Upload timed out after 2 minutes'));
       });
 
       req.on('error', reject);
