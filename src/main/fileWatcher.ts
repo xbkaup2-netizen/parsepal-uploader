@@ -109,7 +109,7 @@ export class FileWatcher {
 
     this.fileWatcher = chokidar.watch(this.logPath, {
       persistent: true,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+      awaitWriteFinish: { stabilityThreshold: 800, pollInterval: 50 },
       ignoreInitial: true,
     });
 

@@ -133,6 +133,10 @@ export interface ElectronAPI {
   removeAllListeners: () => void;
   openExternal: (url: string) => Promise<void>;
 
+  // Addon management
+  getAddonPath: () => Promise<{ path: string; exists: boolean }>;
+  installAddon: () => Promise<{ ok: boolean; error?: string }>;
+
   // Auto-update
   checkForUpdate: () => Promise<{ available: boolean; version?: string }>;
   installUpdate: () => Promise<void>;

@@ -88,6 +88,13 @@ const api: ElectronAPI = {
   openExternal: (url: string) =>
     ipcRenderer.invoke('shell:open-external', url),
 
+  // Addon management
+  getAddonPath: () =>
+    ipcRenderer.invoke('addon:get-path'),
+
+  installAddon: () =>
+    ipcRenderer.invoke('addon:install'),
+
   // Auto-update
   checkForUpdate: () =>
     ipcRenderer.invoke('updater:check'),

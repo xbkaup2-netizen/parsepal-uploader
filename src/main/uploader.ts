@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import type { Fight, UploadEntry, UploadResponse } from '../shared/types';
 
 const API_BASE = 'https://parsepal-production.up.railway.app';
-const MAX_UNCOMPRESSED = 1024 * 1024; // 1MB
+const MAX_UNCOMPRESSED = 500 * 1024 * 1024; // 500MB — heroic fights with 20 players can be massive
 
 /**
  * HTTP client that uploads fight data to the ParsePal API.
@@ -38,6 +38,152 @@ export class Uploader {
     this.onProgress(entry);
     this.processQueue();
     return entry;
+  }
+
+  /**
+   * Upload multiple fights as a single batch request.
+   * Concatenates all fight lines, gzip-compresses, and POSTs to /api/upload/desktop/batch.
+   */
+  async uploadBatch(fights: Fight[]): Promise<UploadEntry> {
+    const entry: UploadEntry = {
+      id: crypto.randomUUID(),
+      fight: {
+        type: fights[0]?.type || 'raid',
+        encounterName: `${fights.length} fights`,
+        duration: fights.reduce((sum, f) => sum + f.duration, 0),
+        success: fights.some(f => f.success),
+        keystoneLevel: fights[0]?.keystoneLevel,
+      },
+      status: 'uploading',
+      progress: 10,
+      timestamp: Date.now(),
+    };
+    this.onProgress(entry);
+
+    // Concatenate all fight lines into a single buffer
+    const allLines: string[] = [];
+    for (const fight of fights) {
+      allLines.push(...fight.lines);
+    }
+    const logData = allLines.join('\n');
+    let fileBuffer = Buffer.from(logData, 'utf-8');
+    const rawSize = fileBuffer.length;
+
+    // Gzip compress
+    fileBuffer = zlib.gzipSync(fileBuffer, { level: 6 });
+    console.log(`Batch upload: ${fights.length} fights — ${(rawSize / 1024).toFixed(0)}KB raw → ${(fileBuffer.length / 1024).toFixed(0)}KB gzipped (${allLines.length} lines)`);
+
+    entry.progress = 30;
+    this.onProgress(entry);
+
+    const delays = [1000, 2000, 4000];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await this.postBatchMultipart(fileBuffer, entry);
+        entry.status = 'done';
+        entry.progress = 100;
+        this.onProgress(entry);
+        return entry;
+      } catch (err: any) {
+        if (attempt < 2) {
+          await this.sleep(delays[attempt]);
+        } else {
+          entry.status = 'error';
+          entry.error = err.message || 'Batch upload failed';
+          entry.progress = 0;
+          this.onProgress(entry);
+        }
+      }
+    }
+
+    return entry;
+  }
+
+  private postBatchMultipart(fileBuffer: Buffer, entry: UploadEntry): Promise<{ success: boolean; combat_log_id: number; encounter_count: number; message: string }> {
+    return new Promise((resolve, reject) => {
+      const token = this.getToken();
+      const boundary = '----ParsePal' + crypto.randomBytes(16).toString('hex');
+      const crlf = '\r\n';
+
+      const parts: Buffer[] = [];
+
+      // File field
+      parts.push(Buffer.from(
+        `--${boundary}${crlf}` +
+        `Content-Disposition: form-data; name="file"; filename="batch.txt.gz"${crlf}` +
+        `Content-Type: application/octet-stream${crlf}${crlf}`
+      ));
+      parts.push(fileBuffer);
+      parts.push(Buffer.from(crlf));
+
+      // Closing boundary
+      parts.push(Buffer.from(`--${boundary}--${crlf}`));
+
+      const body = Buffer.concat(parts);
+
+      const url = new URL(`${API_BASE}/api/upload/desktop/batch`);
+      const options: https.RequestOptions = {
+        hostname: url.hostname,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        req.setTimeout(0);
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          try {
+            const data = JSON.parse(raw);
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(data);
+            } else {
+              reject(new Error(data.detail || data.message || `HTTP ${res.statusCode}`));
+            }
+          } catch {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw.substring(0, 200)}`));
+          }
+        });
+      });
+
+      // 10-minute timeout for large batch uploads
+      req.setTimeout(600000, () => {
+        req.destroy(new Error('Batch upload timed out after 10 minutes'));
+      });
+
+      req.on('error', reject);
+
+      // Chunked upload with progress tracking
+      const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+      let bytesSent = 0;
+      const totalBytes = body.length;
+
+      const writeChunk = (): void => {
+        let canContinue = true;
+        while (bytesSent < totalBytes && canContinue) {
+          const end = Math.min(bytesSent + CHUNK_SIZE, totalBytes);
+          canContinue = req.write(body.subarray(bytesSent, end));
+          bytesSent = end;
+          // Progress: 30% (gzip done) to 90% (upload complete), leaving 90-100% for server processing
+          entry.progress = 30 + Math.floor((bytesSent / totalBytes) * 60);
+          this.onProgress(entry);
+        }
+        if (bytesSent < totalBytes) {
+          req.once('drain', writeChunk);
+        } else {
+          entry.progress = 90;
+          this.onProgress(entry);
+          req.end();
+        }
+      };
+      writeChunk();
+    });
   }
 
   private async processQueue(): Promise<void> {
@@ -81,10 +227,7 @@ export class Uploader {
     const delays = [1000, 2000, 4000];
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        entry.progress = 30 + attempt * 20;
-        this.onProgress(entry);
-
-        const result = await this.postMultipart(fileBuffer, filename, metadata);
+        const result = await this.postMultipart(fileBuffer, filename, metadata, entry);
         entry.status = 'done';
         entry.progress = 100;
         if (result.analysis_url) {
@@ -105,7 +248,7 @@ export class Uploader {
     }
   }
 
-  private postMultipart(fileBuffer: Buffer, filename: string, metadata: string): Promise<UploadResponse> {
+  private postMultipart(fileBuffer: Buffer, filename: string, metadata: string, entry: UploadEntry): Promise<UploadResponse> {
     return new Promise((resolve, reject) => {
       const token = this.getToken();
       const boundary = '----ParsePal' + crypto.randomBytes(16).toString('hex');
@@ -168,14 +311,37 @@ export class Uploader {
         });
       });
 
-      // 2-minute timeout for large uploads
-      req.setTimeout(120000, () => {
-        req.destroy(new Error('Upload timed out after 2 minutes'));
+      // 5-minute timeout for large uploads (heroic prog fights can be 100MB+ gzipped)
+      req.setTimeout(300000, () => {
+        req.destroy(new Error('Upload timed out after 5 minutes'));
       });
 
       req.on('error', reject);
-      req.write(body);
-      req.end();
+
+      // Chunked upload with progress tracking
+      const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+      let bytesSent = 0;
+      const totalBytes = body.length;
+
+      const writeChunk = (): void => {
+        let canContinue = true;
+        while (bytesSent < totalBytes && canContinue) {
+          const end = Math.min(bytesSent + CHUNK_SIZE, totalBytes);
+          canContinue = req.write(body.subarray(bytesSent, end));
+          bytesSent = end;
+          // Progress: 30% (gzip done) to 90% (upload complete), leaving 90-100% for server processing
+          entry.progress = 30 + Math.floor((bytesSent / totalBytes) * 60);
+          this.onProgress(entry);
+        }
+        if (bytesSent < totalBytes) {
+          req.once('drain', writeChunk);
+        } else {
+          entry.progress = 90;
+          this.onProgress(entry);
+          req.end();
+        }
+      };
+      writeChunk();
     });
   }
 

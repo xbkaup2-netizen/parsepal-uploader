@@ -10,9 +10,14 @@ files:
   - assets/**/*
   - package.json
 
+asarUnpack:
+  - assets/**/*
+
 extraResources:
   - from: build/app-update.yml
     to: app-update.yml
+  - from: ../parsepal-addon
+    to: ParsePal-Addon
 
 extraMetadata:
   main: dist/main/main.js

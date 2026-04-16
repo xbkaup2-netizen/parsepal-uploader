@@ -6,3 +6,18 @@ release/
 *.AppImage
 *.msi
 .env
+
+# Claude Code workspace
+.claude/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

@@ -125,7 +125,22 @@ export class LogParser {
   }
 
   private splitCSV(payload: string): string[] {
-    return payload.split(',');
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < payload.length; i++) {
+      const ch = payload[i];
+      if (ch === '"') {
+        inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim());
+    return result;
   }
 
   private countPlayers(lines: string[]): number {

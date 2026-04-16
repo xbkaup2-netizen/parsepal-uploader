@@ -65,6 +65,9 @@ function makeHttpRequest(
       });
     });
 
+    req.setTimeout(15000, () => {
+      req.destroy(new Error('Request timed out'));
+    });
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -73,15 +76,19 @@ function makeHttpRequest(
 
 // ── Window creation ─────────────────────────────────────────────────
 function createWindow(): void {
+  const appIconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.ico')
+    : path.join(__dirname, '..', '..', 'assets', 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     resizable: false,
     backgroundColor: '#0a0a0a',
+    icon: appIconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: true,
+      devTools: !app.isPackaged,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -103,7 +110,12 @@ function createWindow(): void {
 
 // ── System tray ─────────────────────────────────────────────────────
 function createTray(): void {
-  const icon = nativeImage.createEmpty();
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.ico')
+    : path.join(__dirname, '..', '..', 'assets', 'icon.ico');
+  const icon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.setToolTip('ParsePal');
 
@@ -452,12 +464,13 @@ function registerIpcHandlers(): void {
       };
     }
 
-    let uploadCount = 0;
+    // Collect all valid fights from the cache
+    const fights: import('../shared/types').Fight[] = [];
     for (const id of fightIds) {
       const sf = scannedFightsCache.get(id);
       if (!sf) continue;
 
-      const fight = {
+      fights.push({
         type: sf.type as 'raid' | 'mythicplus',
         encounterName: sf.encounterName,
         encounterID: 0,
@@ -469,17 +482,23 @@ function registerIpcHandlers(): void {
         lines: sf.lines,
         playerCount: sf.playerCount,
         fileSize: sf.fileSize,
-      };
+      });
 
-      const entry = uploader.uploadFight(fight);
-      mainWindow?.webContents.send('fight:detected', entry);
-      uploadCount++;
-
-      // Remove from cache after queuing upload
       scannedFightsCache.delete(id);
     }
 
-    return uploadCount;
+    if (fights.length === 0) return 0;
+
+    // Use batch upload for multiple fights, single upload for one fight
+    if (fights.length > 1) {
+      const entry = await uploader.uploadBatch(fights);
+      mainWindow?.webContents.send('fight:detected', entry);
+      return fights.length;
+    } else {
+      const entry = uploader.uploadFight(fights[0]);
+      mainWindow?.webContents.send('fight:detected', entry);
+      return 1;
+    }
   });
 
   ipcMain.handle('watcher:log-count', () => {
@@ -548,6 +567,29 @@ function registerIpcHandlers(): void {
       return shell.openExternal(url);
     } catch {
       console.warn(`[shell:open-external] Blocked malformed URL: ${url}`);
+    }
+  });
+
+  // ── Addon IPC ─────────────────────────────────────────────────────
+  ipcMain.handle('addon:get-path', () => {
+    const addonPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'ParsePal-Addon')
+      : path.join(__dirname, '..', '..', '..', 'parsepal-addon');
+    return { path: addonPath, exists: fs.existsSync(addonPath) };
+  });
+
+  ipcMain.handle('addon:install', async () => {
+    const settings = store.getSettings();
+    if (!settings.wowPath) return { ok: false, error: 'WoW path not set' };
+    const src = app.isPackaged
+      ? path.join(process.resourcesPath, 'ParsePal-Addon')
+      : path.join(__dirname, '..', '..', '..', 'parsepal-addon');
+    const dst = path.join(settings.wowPath, '_retail_', 'Interface', 'AddOns', 'ParsePal');
+    try {
+      fs.cpSync(src, dst, { recursive: true });
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
     }
   });
 

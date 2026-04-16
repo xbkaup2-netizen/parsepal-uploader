@@ -72,8 +72,33 @@ export default function Dashboard({ username }: DashboardProps) {
     window.api.getLogFileCount().then(setLogFileCount).catch(() => {});
   }, [status]);
 
-  // Check for updates on mount + subscribe to updater/scan events
+  // Force re-render every 30s to update "time ago" labels
   useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [watcherStatus, currentFile, uploadHistory] = await Promise.all([
+        window.api.getWatcherStatus(),
+        window.api.getWatchedFile(),
+        window.api.getUploadHistory(),
+      ]);
+      setStatus(watcherStatus);
+      setWatchedFile(currentFile);
+      setHistory(uploadHistory);
+      if (uploadHistory.length > 0) {
+        setLastUpdate(uploadHistory[0].timestamp);
+      }
+    } catch {
+      // Silent fail on load
+    }
+  }, []);
+
+  // Register all IPC listeners in a single useEffect with cleanup
+  useEffect(() => {
+    loadData();
     window.api.checkForUpdate().catch(() => {});
 
     window.api.onScanProgress((progress: ScanProgress) => {
@@ -101,34 +126,6 @@ export default function Dashboard({ username }: DashboardProps) {
           break;
       }
     });
-  }, []);
-
-  // Force re-render every 30s to update "time ago" labels
-  useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadData = useCallback(async () => {
-    try {
-      const [watcherStatus, currentFile, uploadHistory] = await Promise.all([
-        window.api.getWatcherStatus(),
-        window.api.getWatchedFile(),
-        window.api.getUploadHistory(),
-      ]);
-      setStatus(watcherStatus);
-      setWatchedFile(currentFile);
-      setHistory(uploadHistory);
-      if (uploadHistory.length > 0) {
-        setLastUpdate(uploadHistory[0].timestamp);
-      }
-    } catch {
-      // Silent fail on load
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
 
     window.api.onFightDetected((entry: UploadEntry) => {
       setActiveUploads((prev) => {
@@ -600,6 +597,30 @@ export default function Dashboard({ username }: DashboardProps) {
           Tonight: <strong>{tonightCount}</strong> fight{tonightCount !== 1 ? 's' : ''} uploaded
         </div>
         <div className="bottom-bar-actions">
+          <button
+            className="btn btn-secondary"
+            style={{ padding: '6px 14px', fontSize: '12px' }}
+            onClick={async () => {
+              try {
+                const result = await window.api.installAddon();
+                if (result.ok) {
+                  alert('ParsePal addon installed! Restart WoW to activate it.');
+                } else {
+                  // Fallback: open the addon folder so they can drag it manually
+                  const info = await window.api.getAddonPath();
+                  if (info.exists) {
+                    window.api.openExternal(info.path);
+                  } else {
+                    alert(result.error || 'Could not install addon. Set your WoW path in settings first.');
+                  }
+                }
+              } catch {
+                alert('Failed to install addon. Set your WoW path first.');
+              }
+            }}
+          >
+            Install WoW Addon
+          </button>
           <a
             className="link"
             onClick={() => window.api.openExternal('https://parsepal.gg')}
